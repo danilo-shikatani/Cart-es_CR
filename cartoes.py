@@ -12,29 +12,30 @@ if uploaded_file:
     colunas_com_zeros_a_esquerda = ['Banco', 'Agencia', 'Conta']
 
     try:
-    # Lê o arquivo inteiro como texto bruto
-    df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
+        # Lê o arquivo inteiro como texto bruto
+        df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
 
-    # Localiza a linha que contém exatamente 'Deb/Credit' em alguma célula
-    linha_cabecalho = None
-for idx, row in df_raw.iterrows():
-    if row.astype(str).str.strip().str.lower().isin(['deb/credit']).any():
-        linha_cabecalho = idx
-        break
+        # Localiza a linha que contém exatamente 'Deb/Credit' em alguma célula
+        linha_cabecalho = None
+        for idx, row in df_raw.iterrows():
+            if row.astype(str).str.strip().str.lower().isin(['deb/credit']).any():
+                linha_cabecalho = idx
+                break
 
-    # Se não encontrou, exibe erro e para
-if linha_cabecalho is None:
-    st.error("❌ Cabeçalho com 'Deb/Credit' não encontrado no arquivo. Verifique se está escrito corretamente.")
-    st.stop()
+        # Se não encontrou, exibe erro e para
+        if linha_cabecalho is None:
+            st.error("❌ Cabeçalho com 'Deb/Credit' não encontrado no arquivo. Verifique se está escrito corretamente.")
+            st.stop()
 
-    # Recarrega usando a linha correta como cabeçalho
-df = pd.read_excel(uploaded_file, header=linha_cabecalho, dtype=str, engine='openpyxl')
-df.columns = df.columns.str.strip()
+        # Recarrega usando a linha correta como cabeçalho
+        df = pd.read_excel(uploaded_file, header=linha_cabecalho, dtype=str, engine='openpyxl')
+        df.columns = df.columns.str.strip()
 
         # Filtro por Crédito
         df = df[df['Deb/Credit'] == "Credito"]
 
-        historico_filters = ['BIN', 'BANRISUL', 'CREDZ', 'ELOSGATE', 'GETNET', 'GLOBAL', 'CIELO', 'REDE', 'CONTAS A RECEBER TRANSI', 'STONE', 'PAGSEGURO', 'FISERV', 'PAGSEG', 'SISPAG', 'SFPAY']
+        historico_filters = ['BIN', 'BANRISUL', 'CREDZ', 'ELOSGATE', 'GETNET', 'GLOBAL', 'CIELO', 'REDE',
+                             'CONTAS A RECEBER TRANSI', 'STONE', 'PAGSEGURO', 'FISERV', 'PAGSEG', 'SISPAG', 'SFPAY']
         documento_filters = ['12109247', 'FISERV', 'REDE-', 'CIELO']
 
         df_filtered = df[
@@ -67,7 +68,9 @@ df.columns = df.columns.str.strip()
             elif 'SFPAY' in historico: return 'SFPAY'
             return None
 
-        df_filtered['Historico'] = df_filtered.apply(lambda row: get_natureza(row['Historico'], row['Ocorrencia'], row['Documento']), axis=1)
+        df_filtered['Historico'] = df_filtered.apply(
+            lambda row: get_natureza(row['Historico'], row['Ocorrencia'], row['Documento']), axis=1
+        )
 
         natureza_map = {
             'BANRISUL': 'A10801',
@@ -86,7 +89,11 @@ df.columns = df.columns.str.strip()
         df_filtered['Natureza'] = df_filtered['Historico'].map(natureza_map)
         df_filtered['Valor'] = df_filtered['Valor'].round(2)
 
-        df_grouped = df_filtered.groupby(['Filial', 'Data', 'Historico', 'Natureza', 'Banco', 'Agencia', 'Conta']).agg({'Valor': 'sum'}).reset_index()
+        df_grouped = df_filtered.groupby(
+            ['Filial', 'Data', 'Historico', 'Natureza', 'Banco', 'Agencia', 'Conta']
+        ).agg({'Valor': 'sum'}).reset_index()
+
+        # Complementa colunas
         df_grouped['TIPO'] = 'R'
         df_grouped['NUMERARIO'] = 'CD'
         df_grouped['NUM CHEQUE'] = ''
