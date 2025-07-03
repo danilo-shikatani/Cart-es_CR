@@ -12,21 +12,24 @@ if uploaded_file:
     colunas_com_zeros_a_esquerda = ['Banco', 'Agencia', 'Conta']
 
     try:
-        # 1. Lê o arquivo inteiro, sem cabeçalho
-        df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
+    # Lê o arquivo inteiro como texto bruto
+    df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
 
-        # 2. Detecta a linha onde está 'Deb/Credit' para definir o cabeçalho
-        linha_cabecalho = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains('Deb/Credit', case=False).any(), axis=1)].index
+    # Localiza a linha que contém exatamente 'Deb/Credit' em alguma célula
+    linha_cabecalho = None
+for idx, row in df_raw.iterrows():
+    if row.astype(str).str.strip().str.lower().isin(['deb/credit']).any():
+        linha_cabecalho = idx
+        break
 
-        if linha_cabecalho.empty:
-            st.error("❌ Não foi possível localizar a linha de cabeçalho com 'Deb/Credit'. Verifique o arquivo.")
-            st.stop()
+    # Se não encontrou, exibe erro e para
+if linha_cabecalho is None:
+    st.error("❌ Cabeçalho com 'Deb/Credit' não encontrado no arquivo. Verifique se está escrito corretamente.")
+    st.stop()
 
-        linha_cabecalho = linha_cabecalho[0]
-
-        # 3. Recarrega com o cabeçalho correto
-        df = pd.read_excel(uploaded_file, skiprows=linha_cabecalho + 1, header=linha_cabecalho, dtype=str, engine='openpyxl')
-        df.columns = df.columns.str.strip()
+    # Recarrega usando a linha correta como cabeçalho
+df = pd.read_excel(uploaded_file, header=linha_cabecalho, dtype=str, engine='openpyxl')
+df.columns = df.columns.str.strip()
 
         # Filtro por Crédito
         df = df[df['Deb/Credit'] == "Credito"]
