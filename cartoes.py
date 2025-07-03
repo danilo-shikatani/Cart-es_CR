@@ -12,10 +12,23 @@ if uploaded_file:
     colunas_com_zeros_a_esquerda = ['Banco', 'Agencia', 'Conta']
 
     try:
-        df = pd.read_excel(uploaded_file, dtype={col: str for col in colunas_com_zeros_a_esquerda}, skiprows=1, engine='openpyxl')
+        # 1. Lê o arquivo inteiro, sem cabeçalho
+        df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
+
+        # 2. Detecta a linha onde está 'Deb/Credit' para definir o cabeçalho
+        linha_cabecalho = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains('Deb/Credit', case=False).any(), axis=1)].index
+
+        if linha_cabecalho.empty:
+            st.error("❌ Não foi possível localizar a linha de cabeçalho com 'Deb/Credit'. Verifique o arquivo.")
+            st.stop()
+
+        linha_cabecalho = linha_cabecalho[0]
+
+        # 3. Recarrega com o cabeçalho correto
+        df = pd.read_excel(uploaded_file, skiprows=linha_cabecalho + 1, header=linha_cabecalho, dtype=str, engine='openpyxl')
         df.columns = df.columns.str.strip()
-        df.columns = df.iloc[0]  # Define a primeira linha como cabeçalho
-        df = df[1:]  # Remove a primeira linha repetida
+
+        # Filtro por Crédito
         df = df[df['Deb/Credit'] == "Credito"]
 
         historico_filters = ['BIN', 'BANRISUL', 'CREDZ', 'ELOSGATE', 'GETNET', 'GLOBAL', 'CIELO', 'REDE', 'CONTAS A RECEBER TRANSI', 'STONE', 'PAGSEGURO', 'FISERV', 'PAGSEG', 'SISPAG', 'SFPAY']
@@ -34,6 +47,7 @@ if uploaded_file:
         df_filtered['Filial'] = df_filtered['Filial'].apply(lambda x: str(x)[:4] if pd.notnull(x) else x)
         df_filtered['Valor'] = pd.to_numeric(df_filtered['Valor'], errors='coerce')
 
+        # Função para identificar a natureza
         def get_natureza(historico, ocorrencia, documento):
             if 'BANRISUL' in historico: return 'BANRISUL'
             elif 'BIN' in historico: return 'BIN'
