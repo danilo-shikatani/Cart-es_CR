@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import io
 
 st.set_page_config(page_title="Consolidador de Extratos", layout="centered")
 st.title("🏦 Conversor de Extratos Bancários")
@@ -9,13 +10,11 @@ st.markdown("Faça upload do extrato bancário em Excel e baixe o arquivo agrupa
 uploaded_file = st.file_uploader("📎 Selecione o arquivo Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    colunas_com_zeros_a_esquerda = ['Banco', 'Agencia', 'Conta']
-
     try:
         # Lê o arquivo inteiro como texto bruto
         df_raw = pd.read_excel(uploaded_file, header=None, dtype=str, engine='openpyxl')
 
-        # Localiza a linha que contém exatamente 'Deb/Credit' em alguma célula
+        # Localiza a linha que contém exatamente 'Deb/Credit'
         linha_cabecalho = None
         for idx, row in df_raw.iterrows():
             if row.astype(str).str.strip().str.lower().isin(['deb/credit']).any():
@@ -24,18 +23,22 @@ if uploaded_file:
 
         # Se não encontrou, exibe erro e para
         if linha_cabecalho is None:
-            st.error("❌ Cabeçalho com 'Deb/Credit' não encontrado no arquivo. Verifique se está escrito corretamente.")
+            st.error("❌ Cabeçalho com 'Deb/Credit' não encontrado no arquivo.")
             st.stop()
 
-        # Recarrega usando a linha correta como cabeçalho
+        # Lê novamente com a linha correta como cabeçalho
         df = pd.read_excel(uploaded_file, header=linha_cabecalho, dtype=str, engine='openpyxl')
         df.columns = df.columns.str.strip()
+        df = df.fillna('')  # Substitui todos os NaN por vazio
 
         # Filtro por Crédito
         df = df[df['Deb/Credit'] == "Credito"]
 
-        historico_filters = ['BIN', 'BANRISUL', 'CREDZ', 'ELOSGATE', 'GETNET', 'GLOBAL', 'CIELO', 'REDE',
-                             'CONTAS A RECEBER TRANSI', 'STONE', 'PAGSEGURO', 'FISERV', 'PAGSEG', 'SISPAG', 'SFPAY']
+        # Filtros relevantes
+        historico_filters = [
+            'BIN', 'BANRISUL', 'CREDZ', 'ELOSGATE', 'GETNET', 'GLOBAL', 'CIELO', 'REDE',
+            'CONTAS A RECEBER TRANSI', 'STONE', 'PAGSEGURO', 'FISERV', 'PAGSEG', 'SISPAG', 'SFPAY'
+        ]
         documento_filters = ['12109247', 'FISERV', 'REDE-', 'CIELO']
 
         df_filtered = df[
@@ -43,13 +46,16 @@ if uploaded_file:
             df['Documento'].str.contains('|'.join(documento_filters), na=False)
         ]
 
+        # Remove registros indevidos
         df_filtered = df_filtered[~df_filtered['Historico'].str.contains('MORAIS', na=False)]
-        df_filtered['Agencia'] = df_filtered['Agencia'].apply(lambda x: str(x)[-4:] if pd.notnull(x) else x)
+
+        # Limpeza e transformação de dados
+        df_filtered['Agencia'] = df_filtered['Agencia'].apply(lambda x: str(x)[-4:] if x else x)
+        df_filtered['Conta'] = pd.to_numeric(df_filtered['Conta'], errors='coerce').fillna(0).astype(int).astype(str)
+        df_filtered['Filial'] = df_filtered['Filial'].apply(lambda x: str(x)[:4] if x else x)
         df_filtered['Ocorrencia'] = df_filtered['Ocorrencia'].fillna("N/A")
-        df_filtered['Conta'] = pd.to_numeric(df_filtered['Conta'], errors='coerce').astype('Int64')
         df_filtered['Data'] = pd.to_datetime(df_filtered['Data'], errors='coerce')
-        df_filtered['Filial'] = df_filtered['Filial'].apply(lambda x: str(x)[:4] if pd.notnull(x) else x)
-        df_filtered['Valor'] = pd.to_numeric(df_filtered['Valor'], errors='coerce')
+        df_filtered['Valor'] = pd.to_numeric(df_filtered['Valor'], errors='coerce').fillna(0).round(2)
 
         # Função para identificar a natureza
         def get_natureza(historico, ocorrencia, documento):
@@ -87,8 +93,8 @@ if uploaded_file:
         }
 
         df_filtered['Natureza'] = df_filtered['Historico'].map(natureza_map)
-        df_filtered['Valor'] = df_filtered['Valor'].round(2)
 
+        # Agrupamento
         df_grouped = df_filtered.groupby(
             ['Filial', 'Data', 'Historico', 'Natureza', 'Banco', 'Agencia', 'Conta']
         ).agg({'Valor': 'sum'}).reset_index()
@@ -111,10 +117,16 @@ if uploaded_file:
         ]
         df_grouped = df_grouped[colunas_ordenadas]
 
+        # Cria arquivo Excel em memória
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_grouped.to_excel(writer, index=False)
+        output.seek(0)
+
         st.success("✅ Arquivo processado com sucesso!")
         st.download_button(
             label="⬇️ Baixar Excel Formatado",
-            data=df_grouped.to_excel(index=False, engine='openpyxl'),
+            data=output,
             file_name=f"consolidado_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
